@@ -1,5 +1,4 @@
 # src/main.py
-#testing
 import httpx
 from typing import Dict, Any
 from langgraph.graph import Graph
@@ -13,7 +12,8 @@ from pathlib import Path
 env_path = Path(__file__).parents[1] / '.env'
 load_dotenv(dotenv_path=env_path)
 
-# Configure API settings
+# Configure API
+# I settings
 ZEP_API_KEY = os.getenv("ZEP_API_KEY")
 if not ZEP_API_KEY:
     raise ValueError("ZEP_API_KEY not found in environment variables")
@@ -73,8 +73,16 @@ def enrich_facts(state: Dict[str, Any]) -> Dict[str, Any]:
     facts_list = state.get("facts", {}).get("facts", [])
     
     # Extract key information
+    # Get business name from HAS_NAME fact
+    business_name = next((f["target_node_name"] for f in facts_list if "HAS_NAME" == f["name"]), "Unknown")
+    
+    # Get tow truck model from any fact containing it
+    tow_truck_facts = [f for f in facts_list if "Tow Truck:" in f["content"]]
+    tow_truck_model = next((f["content"].split("Tow Truck: ")[1].split(" has")[0] 
+                          for f in tow_truck_facts), "Unknown") if tow_truck_facts else "Unknown"
+    
     business_info = {
-        "name": "Westons Garage, LLC",
+        "name": business_name,
         "industry": next((f["target_node_name"] for f in facts_list if "HAS_INDUSTRY" == f["name"]), "Unknown"),
         "revenue": next((f["content"] for f in facts_list if "HAS_ANNUAL_REVENUE" == f["name"]), "Unknown"),
         "location": next((f["content"] for f in facts_list if "IS_LOCATED_AT" == f["name"]), "Unknown"),
@@ -97,7 +105,7 @@ def enrich_facts(state: Dict[str, Any]) -> Dict[str, Any]:
         },
         "equipment": {
             "tow_truck": {
-                "model": "2004 Chevy Silverado",
+                "model": tow_truck_model,
                 "value": next((f["target_node_name"] for f in facts_list if "HAS_VALUE" == f["name"]), "Unknown"),
                 "operating_radius": next((f["target_node_name"] for f in facts_list if "HAS_OPERATING_RADIUS" == f["name"]), "Unknown")
             }
