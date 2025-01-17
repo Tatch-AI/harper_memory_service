@@ -109,30 +109,101 @@ def enrich_facts(state: Dict[str, Any]) -> Dict[str, Any]:
         return state
     
     facts_list = state.get("facts", {}).get("facts", [])
+    metadata = {}
+    
+    # Extract company metadata if available
+    for fact in facts_list:
+        if "company" in fact.get("metadata", {}):
+            metadata = fact["metadata"]["company"]
+            break
+    
+    def get_fact_value(name_patterns, field_patterns, default="Unknown"):
+        """Helper to get fact value checking multiple patterns and fields"""
+        for name_pattern in name_patterns:
+            for field_pattern in field_patterns:
+                value = next((
+                    f.get(field_pattern, "Unknown") 
+                    for f in facts_list 
+                    if name_pattern.lower() in f.get("name", "").lower()
+                ), None)
+                if value and value != "Unknown":
+                    return value
+        
+        # If not found in facts, try metadata
+        for key in metadata:
+            if any(pattern.lower() in key.lower() for pattern in name_patterns):
+                value = metadata.get(key)
+                if value and value != "null":
+                    return value
+                
+        return default
+
+    # Get company name from metadata or facts
+    company_name = metadata.get("company_name", "") or get_fact_value(
+        ["HAS_NAME", "COMPANY_NAME"], 
+        ["target_node_name", "content"]
+    )
     
     business_info = {
-        "name": next((f["target_node_name"] for f in facts_list if "HAS_NAME" == f["name"]), "Unknown"),
-        "industry": next((f["target_node_name"] for f in facts_list if "HAS_INDUSTRY" == f["name"]), "Unknown"),
-        "revenue": next((f["content"] for f in facts_list if "HAS_ANNUAL_REVENUE" == f["name"]), "Unknown"),
-        "location": next((f["content"] for f in facts_list if "IS_LOCATED_AT" == f["name"]), "Unknown"),
+        "name": company_name,
+        "industry": metadata.get("company_industry") or get_fact_value(
+            ["HAS_INDUSTRY", "INDUSTRY"], 
+            ["target_node_name", "content"]
+        ),
+        "revenue": metadata.get("company_annual_revenue_usd") or get_fact_value(
+            ["HAS_ANNUAL_REVENUE", "REVENUE"], 
+            ["content", "target_node_name"]
+        ),
+        "location": metadata.get("company_city") or get_fact_value(
+            ["IS_LOCATED_AT", "LOCATION", "ADDRESS"], 
+            ["content", "target_node_name"]
+        ),
         "services": {
-            "type": next((f["content"] for f in facts_list if "HAS_BUSINESS_TYPE" == f["name"]), "Unknown"),
+            "type": metadata.get("company_sub_contractor_costs_info") or get_fact_value(
+                ["HAS_BUSINESS_TYPE", "BUSINESS_TYPE"], 
+                ["content", "target_node_name"]
+            ),
             "service_split": {
-                "mechanic": next((f["content"] for f in facts_list if "COMPRISES" == f["name"] and "mechanic" in f["content"].lower()), "Unknown"),
-                "towing": next((f["content"] for f in facts_list if "COMPRISES" == f["name"] and "towing" in f["content"].lower()), "Unknown")
+                "mechanic": get_fact_value(
+                    ["COMPRISES", "SERVICE_SPLIT"], 
+                    ["content"], 
+                    "Unknown"
+                ) if "mechanic" in str(facts_list).lower() else "Unknown",
+                "towing": get_fact_value(
+                    ["COMPRISES", "SERVICE_SPLIT"], 
+                    ["content"], 
+                    "Unknown"
+                ) if "towing" in str(facts_list).lower() else "Unknown"
             }
         },
         "contact": {
-            "owner": next((f["content"] for f in facts_list if "HAS_CONTACT_ROLE" == f["name"]), "Unknown"),
-            "email": next((f["target_node_name"] for f in facts_list if "HAS_EMAIL" == f["name"]), "Unknown"),
-            "phone": next((f["target_node_name"] for f in facts_list if "HAS_PHONE" == f["name"]), "Unknown")
+            "owner": metadata.get("contact_first_name", "") + " " + metadata.get("contact_last_name", "") or get_fact_value(
+                ["HAS_CONTACT_ROLE", "OWNER"], 
+                ["content", "target_node_name"]
+            ),
+            "email": metadata.get("contact_primary_email") or metadata.get("company_primary_email") or get_fact_value(
+                ["HAS_EMAIL", "EMAIL"], 
+                ["target_node_name", "content"]
+            ),
+            "phone": metadata.get("contact_primary_phone") or metadata.get("company_primary_phone") or get_fact_value(
+                ["HAS_PHONE", "PHONE"], 
+                ["target_node_name", "content"]
+            )
         },
         "equipment": {
             "tow_truck": {
-                "model": next((f["content"].split("Tow Truck: ")[1].split(" has")[0] 
-                             for f in facts_list if "Tow Truck:" in f["content"]), "Unknown"),
-                "value": next((f["target_node_name"] for f in facts_list if "HAS_VALUE" == f["name"]), "Unknown"),
-                "operating_radius": next((f["target_node_name"] for f in facts_list if "HAS_OPERATING_RADIUS" == f["name"]), "Unknown")
+                "model": get_fact_value(
+                    ["TOW_TRUCK", "VEHICLE"], 
+                    ["content", "target_node_name"]
+                ),
+                "value": metadata.get("company_vehicle_value") or get_fact_value(
+                    ["HAS_VALUE", "VEHICLE_VALUE"], 
+                    ["target_node_name", "content"]
+                ),
+                "operating_radius": metadata.get("company_operating_radius") or get_fact_value(
+                    ["HAS_OPERATING_RADIUS", "RADIUS"], 
+                    ["target_node_name", "content"]
+                )
             }
         }
     }
